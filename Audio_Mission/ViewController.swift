@@ -8,13 +8,14 @@
 import UIKit
 import AVFoundation
 
-class ViewController: UIViewController, AVAudioPlayerDelegate {
+class ViewController: UIViewController, AVAudioPlayerDelegate, AVAudioRecorderDelegate {
     
     var audioPlayer : AVAudioPlayer! // AVAudioPlayer 인스턴스 변수
     var audioFile : URL! // 재생할 오디오의 파일명 변수
     let MAX_VOLUME : Float = 10.0
     var progressTimer : Timer! // 타이머를 위한 변수
     let timePlayerSelector : Selector = #selector(ViewController.updatePlayTime)
+    let timeRecordSelector : Selector = #selector(ViewController.updateRecordTime)
     
     @IBOutlet var pvProgressPlay: UIProgressView!
     @IBOutlet var lbCurrentTime: UILabel!
@@ -26,12 +27,72 @@ class ViewController: UIViewController, AVAudioPlayerDelegate {
     
     @IBOutlet var slVilume: UISlider!
     
+    @IBOutlet var btnRecord: UIButton!
+    @IBOutlet var lbRecordTime: UILabel!
+    
+    var audioRecorder : AVAudioRecorder! // 인스턴스 추가
+    var isRecordMode = false
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
+        selectAndioFile()
+        if !isRecordMode {
+            initPlay()
+            btnRecord.isEnabled = false
+            lbRecordTime.isEnabled = false
+        }
+        else {
+            initRecord()
+        }
+    }
+    
+    func selectAndioFile() {
+        // 녹음 했는데 재생 파일에 겹쳐서 저장되면 안 되기 때문에
+        if !isRecordMode {
+            // 재생 모드일 때는 오피오 파일 재생
+            audioFile = Bundle.main.url(forResource: "Sicilian_Breeze", withExtension: "mp3") // 추가한 오디오 설정
+        }
+        else {
+            let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            audioFile = documentDirectory.appendingPathComponent("recordFile.m4a")
+        }
+    }
+    
+    func initRecord() {
+        let recordSettings = [
+            AVFormatIDKey : NSNumber(value: kAudioFormatAppleLossless as UInt32),
+            AVEncoderAudioQualityKey : AVAudioQuality.max.rawValue,
+            AVEncoderBitRateKey : 320000,
+            AVNumberOfChannelsKey : 2,
+            AVSampleRateKey : 44100.0] as [String : Any]
+        do {
+            audioRecorder = try AVAudioRecorder(url: audioFile, settings: recordSettings)
+        } catch let error as NSError {
+            print("Reeoe-initRecord : \(error)")
+        }
         
-        audioFile = Bundle.main.url(forResource: "Sicilian_Breeze", withExtension: "mp3") // 추가한 오디오 설정
-        initPlay()
+        audioRecorder.delegate = self
+        
+        // 초기화 하는 부분
+        slVilume.value = 1.0
+        audioPlayer.volume = slVilume.value
+        lbEndTime.text = convertNSTimeInterval2String(0)
+        lbCurrentTime.text = convertNSTimeInterval2String(0)
+        setPlayButtons(false, pause: false, stop: false)
+        
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch let error as NSError {
+            print(" Error-setCategory : \(error)")
+        }
+        do {
+            try session.setActive(true)
+        } catch let error as NSError {
+            print(" Error-setActive : \(error)")
+        }
     }
     
     func initPlay() {
@@ -108,6 +169,49 @@ class ViewController: UIViewController, AVAudioPlayerDelegate {
         progressTimer.invalidate()
         setPlayButtons(true, pause: false, stop: false)
         
+    }
+
+    @IBAction func swRecordMode(_ sender: UISwitch) {
+        if sender.isOn {
+            audioPlayer.stop()
+            audioPlayer.currentTime = 0
+            lbRecordTime!.text = convertNSTimeInterval2String(0)
+            isRecordMode = true
+            btnRecord.isEnabled = true
+            lbRecordTime.isEnabled = true
+        }
+        else {
+            isRecordMode = false
+            btnRecord.isEnabled = false
+            lbRecordTime.isEnabled = false
+            lbRecordTime.text = convertNSTimeInterval2String(0)
+        }
+        selectAndioFile()
+        if !isRecordMode {
+            initPlay()
+        }
+        else {
+            initRecord()
+        }
+    }
+    
+    
+    @IBAction func btnRecord(_ sender: UIButton) {
+        if (sender as AnyObject).titleLabel?.text == "Record" {
+            audioRecorder.record()
+            (sender as AnyObject).setTitle("Stop", for: UIControl.State())
+            progressTimer = Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: timeRecordSelector, userInfo: nil, repeats: true)
+        } else {
+            audioRecorder.stop()
+            progressTimer.invalidate()
+            (sender as AnyObject).setTitle("Record", for: UIControl.State())
+            btnRecord.isEnabled = true
+            initPlay()
+        }
+    }
+    
+    @objc func updateRecordTime() {
+        lbRecordTime.text = convertNSTimeInterval2String(audioRecorder.currentTime)
     }
 }
 
